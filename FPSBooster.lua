@@ -14,8 +14,12 @@ local State = {
     noAnimation = false,
     fullbright = false,
     hideTexture = false,
+    shadowsOff = false,
+    postEffectsOff = false,
+    atmosphereOff = false,
+    worldLightsOff = false,
     zoomOn = false,
-    zoomHeight = 25,
+    zoomHeight = 60,
 }
 local renderParts = {}
 local renderPartsMap = {}
@@ -44,6 +48,7 @@ local C = {
     border = Color3.fromRGB(55, 55, 55),
 }
 local function setShadows(off)
+    State.shadowsOff = off
     pcall(function()
         Lighting.GlobalShadows = not off
         Lighting.EnvironmentSpecularScale = off and 0 or 1
@@ -51,6 +56,7 @@ local function setShadows(off)
     end)
 end
 local function setPostEffects(off)
+    State.postEffectsOff = off
     for _, obj in pairs(Lighting:GetChildren()) do
         if obj:IsA("PostEffect") then
             obj.Enabled = not off
@@ -71,6 +77,7 @@ local function setQuality(low)
     end)
 end
 local function setAtmosphere(off)
+    State.atmosphereOff = off
     for _, obj in pairs(Lighting:GetChildren()) do
         if obj:IsA("Atmosphere") then
             obj.Density = off and 0 or 0.395
@@ -80,6 +87,7 @@ local function setAtmosphere(off)
     end
 end
 local function setWorldLights(off)
+    State.worldLightsOff = off
     for _, d in pairs(workspace:GetDescendants()) do
         if d:IsA("SpotLight") or d:IsA("PointLight") or d:IsA("SurfaceLight") then
             d.Enabled = not off
@@ -461,19 +469,27 @@ local function stepRender()
     local cam = workspace.CurrentCamera
     if not cam then return end
     local camPos = cam.CFrame.Position
-    local maxDist = math.max(80, State.renderPct * State.maxDist)
+    local pct = State.renderPct
+    local maxDist = pct <= 0 and 0 or math.max(80, pct * State.maxDist)
     local fadeStart = maxDist * 0.7
     local fadeRange = maxDist - fadeStart
     local char = player.Character
     local camLook = cam.CFrame.LookVector
-    local maxPartsPerFrame = 300
-    local processed = 0
+    local maxDistSq = maxDist * maxDist
+    local fadeStartSq = fadeStart * fadeStart
+    local fadeStartHalfSq = (fadeStart * 0.5) ^ 2
+    local timeStart = os.clock()
+    local partsBudget = 0.0018
+    local particlesBudget = 0.0012
     local partCount = #renderParts
-    if renderPartsStale > partCount then
+    if renderPartsStale > (partCount * 2) then
         rebuildRenderParts()
         partCount = #renderParts
     end
-    while processed < maxPartsPerFrame and partCount > 0 do
+    while partCount > 0 do
+        if os.clock() - timeStart > partsBudget then
+            break
+        end
         if renderPartsIndex > partCount then
             renderPartsIndex = 1
         end
@@ -482,29 +498,34 @@ local function stepRender()
         if part and renderPartsMap[part] then
             if part:IsA("BasePart") then
                 if not (char and part:IsDescendantOf(char)) and part.Transparency < 0.95 then
-                    local offset = part.Position - camPos
-                    local distSq = offset.X^2 + offset.Y^2 + offset.Z^2
-                    local maxDistSq = maxDist * maxDist
-                    if distSq > maxDistSq then
+                    if maxDist <= 0 then
                         if part.LocalTransparencyModifier < 0.99 then
                             part.LocalTransparencyModifier = 1
                         end
-                    elseif distSq > (fadeStart * fadeStart) then
-                        local dot = camLook:Dot(offset.Unit)
-                        if dot < -0.3 and distSq > (fadeStart * 0.5) ^ 2 then
+                    else
+                        local offset = part.Position - camPos
+                        local distSq = offset.X^2 + offset.Y^2 + offset.Z^2
+                        if distSq > maxDistSq then
                             if part.LocalTransparencyModifier < 0.99 then
                                 part.LocalTransparencyModifier = 1
                             end
-                        else
-                            local dist = math.sqrt(distSq)
-                            local newTransparency = (dist - fadeStart) / fadeRange
-                            if math.abs(part.LocalTransparencyModifier - newTransparency) > 0.01 then
-                                part.LocalTransparencyModifier = newTransparency
+                        elseif distSq > fadeStartSq then
+                            local dot = camLook:Dot(offset.Unit)
+                            if dot < -0.3 and distSq > fadeStartHalfSq then
+                                if part.LocalTransparencyModifier < 0.99 then
+                                    part.LocalTransparencyModifier = 1
+                                end
+                            else
+                                local dist = math.sqrt(distSq)
+                                local newTransparency = (dist - fadeStart) / fadeRange
+                                if math.abs(part.LocalTransparencyModifier - newTransparency) > 0.01 then
+                                    part.LocalTransparencyModifier = newTransparency
+                                end
                             end
-                        end
-                    else
-                        if part.LocalTransparencyModifier > 0.01 then
-                            part.LocalTransparencyModifier = 0
+                        else
+                            if part.LocalTransparencyModifier > 0.01 then
+                                part.LocalTransparencyModifier = 0
+                            end
                         end
                     end
                 end
@@ -512,16 +533,17 @@ local function stepRender()
         else
             renderPartsStale += 1
         end
-        processed += 1
     end
+    timeStart = os.clock()
     local particleCount = #renderParticles
-    if renderParticlesStale > particleCount then
+    if renderParticlesStale > (particleCount * 2) then
         rebuildRenderParticles()
         particleCount = #renderParticles
     end
-    local processedP = 0
-    local maxParticlesPerFrame = 200
-    while processedP < maxParticlesPerFrame and particleCount > 0 do
+    while particleCount > 0 do
+        if os.clock() - timeStart > particlesBudget then
+            break
+        end
         if renderParticlesIndex > particleCount then
             renderParticlesIndex = 1
         end
@@ -531,9 +553,14 @@ local function stepRender()
             if not State.particlesOff then
                 local parent = p.Parent
                 if parent and parent:IsA("BasePart") then
-                    local offset = parent.Position - camPos
-                    local distSq = offset.X^2 + offset.Y^2 + offset.Z^2
-                    local enabled = distSq <= (maxDist * maxDist)
+                    local enabled
+                    if maxDist <= 0 then
+                        enabled = false
+                    else
+                        local offset = parent.Position - camPos
+                        local distSq = offset.X^2 + offset.Y^2 + offset.Z^2
+                        enabled = distSq <= maxDistSq
+                    end
                     if p.Enabled ~= enabled then
                         p.Enabled = enabled
                     end
@@ -542,12 +569,23 @@ local function stepRender()
         else
             renderParticlesStale += 1
         end
-        processedP += 1
     end
 end
 renderDescAddConn = workspace.DescendantAdded:Connect(function(d)
     if State.particlesOff then
         if d:IsA("ParticleEmitter") or d:IsA("Fire") or d:IsA("Smoke") or d:IsA("Sparkles") or d:IsA("Trail") then
+            d.Enabled = false
+        end
+    end
+    if State.renderOn and State.renderPct <= 0 then
+        if d:IsA("BasePart") and not d:IsA("Terrain") then
+            d.LocalTransparencyModifier = 1
+        elseif d:IsA("ParticleEmitter") or d:IsA("Trail") then
+            d.Enabled = false
+        end
+    end
+    if State.worldLightsOff then
+        if d:IsA("SpotLight") or d:IsA("PointLight") or d:IsA("SurfaceLight") then
             d.Enabled = false
         end
     end
@@ -588,6 +626,14 @@ Lighting.DescendantAdded:Connect(function(d)
     if State.hideTexture then
         hideObjTexture(d)
     end
+    if State.postEffectsOff and d:IsA("PostEffect") then
+        d.Enabled = false
+    end
+    if State.atmosphereOff and d:IsA("Atmosphere") then
+        d.Density = 0
+        d.Glare = 0
+        d.Haze = 0
+    end
 end)
 local gui = Instance.new("ScreenGui")
 gui.Name = "FPSBoosterBasic"
@@ -625,7 +671,7 @@ fpsLabel.BackgroundTransparency = 1
 fpsLabel.Text = "-- FPS"
 fpsLabel.TextColor3 = C.on
 fpsLabel.TextSize = 12
-fpsLabel.Font = Enum.Font.SourceSansBold
+fpsLabel.Font = Enum.Font.SourceSansBold 
 fpsLabel.TextXAlignment = Enum.TextXAlignment.Right
 fpsLabel.Parent = titleBar
 local minimizeBtn = Instance.new("TextButton")
@@ -874,8 +920,8 @@ addHeader("CAMERA")
 addToggle("Zoom Look Down", false, function(on)
     setZoom(on)
 end)
-addSlider("Zoom Height", 0.2, function(v)
-    State.zoomHeight = 6 + (v * 54)
+addSlider("Zoom Height", 0.375, function(v)
+    State.zoomHeight = 6 + (v * 144)
 end)
 local dragOn, dragStart, startPos = false, nil, nil
 titleBar.InputBegan:Connect(function(input)
