@@ -1,31 +1,32 @@
-local Players      = game:GetService("Players")
-local UIS          = game:GetService("UserInputService")
-local Lighting     = game:GetService("Lighting")
-local RunService   = game:GetService("RunService")
-local Utility = {}
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
+local Utility = {}
 local State = {
-    renderOn     = false,
-    renderPct    = 0.5,
-    maxDist      = 1500,
-    folded       = false,
+    renderOn = false,
+    renderPct = 0.5,
+    maxDist = 1500,
+    folded = false,
     particlesOff = false,
-    noAnimation  = false,
-    fullbright   = false,
+    noAnimation = false,
+    fullbright = false,
+    hideTexture = false,
 }
 local C = {
-    bg       = Color3.fromRGB(30, 30, 30),
-    title    = Color3.fromRGB(40, 40, 40),
-    section  = Color3.fromRGB(35, 35, 35),
-    text     = Color3.fromRGB(220, 220, 220),
-    dim      = Color3.fromRGB(150, 150, 150),
-    on       = Color3.fromRGB(80, 180, 80),
-    off      = Color3.fromRGB(180, 60, 60),
-    slider   = Color3.fromRGB(50, 50, 50),
-    fill     = Color3.fromRGB(80, 140, 255),
-    white    = Color3.fromRGB(255, 255, 255),
-    border   = Color3.fromRGB(55, 55, 55),
+    bg = Color3.fromRGB(30, 30, 30),
+    title = Color3.fromRGB(40, 40, 40),
+    section = Color3.fromRGB(35, 35, 35),
+    text = Color3.fromRGB(220, 220, 220),
+    dim = Color3.fromRGB(150, 150, 150),
+    on = Color3.fromRGB(80, 180, 80),
+    off = Color3.fromRGB(180, 60, 60),
+    slider = Color3.fromRGB(50, 50, 50),
+    fill = Color3.fromRGB(80, 140, 255),
+    white = Color3.fromRGB(255, 255, 255),
+    border = Color3.fromRGB(55, 55, 55),
 }
 local function setShadows(off)
     pcall(function()
@@ -74,9 +75,332 @@ local function resetRender()
     for _, d in pairs(workspace:GetDescendants()) do
         if d:IsA("BasePart") then
             d.LocalTransparencyModifier = 0
-        elseif d:IsA("ParticleEmitter") or d:IsA("Trail") then
-            if not State.particlesOff then d.Enabled = true end
+        elseif (d:IsA("ParticleEmitter") or d:IsA("Trail")) and not State.particlesOff then
+            d.Enabled = true
         end
+    end
+end
+local texStore = {
+    decals = {},
+    surfApp = {},
+    materials = {},
+    meshTex = {},
+    fileMesh = {},
+    beams = {},
+    skies = {},
+    shirts = {},
+    pants = {},
+    terrainDeco = nil,
+}
+local function hideObjTexture(d)
+    pcall(function()
+        if d:IsA("Decal") or d:IsA("Texture") then
+            if not texStore.decals[d] then
+                texStore.decals[d] = d.Transparency
+            end
+            d.Transparency = 1
+        elseif d:IsA("SurfaceAppearance") then
+            if not texStore.surfApp[d] then
+                texStore.surfApp[d] = d.Parent
+            end
+            d.Parent = nil
+        elseif d:IsA("BasePart") and not d:IsA("Terrain") then
+            if not texStore.materials[d] then
+                texStore.materials[d] = d.Material
+            end
+            d.Material = Enum.Material.SmoothPlastic
+            if d:IsA("MeshPart") and d.TextureID ~= "" then
+                if not texStore.meshTex[d] then
+                    texStore.meshTex[d] = d.TextureID
+                end
+                d.TextureID = ""
+            end
+        elseif d:IsA("FileMesh") then
+            if d.TextureId ~= "" then
+                if not texStore.fileMesh[d] then
+                    texStore.fileMesh[d] = d.TextureId
+                end
+                d.TextureId = ""
+            end
+        elseif d:IsA("Beam") then
+            if d.Texture ~= "" then
+                if not texStore.beams[d] then
+                    texStore.beams[d] = d.Texture
+                end
+                d.Texture = ""
+            end
+        elseif d:IsA("Sky") then
+            if not texStore.skies[d] then
+                texStore.skies[d] = {
+                    d.SkyboxBk, d.SkyboxDn, d.SkyboxFt,
+                    d.SkyboxLf, d.SkyboxRt, d.SkyboxUp,
+                }
+            end
+            d.SkyboxBk = ""
+            d.SkyboxDn = ""
+            d.SkyboxFt = ""
+            d.SkyboxLf = ""
+            d.SkyboxRt = ""
+            d.SkyboxUp = ""
+        elseif d:IsA("Shirt") then
+            if not texStore.shirts[d] then
+                texStore.shirts[d] = d.ShirtTemplate
+            end
+            d.ShirtTemplate = ""
+        elseif d:IsA("Pants") then
+            if not texStore.pants[d] then
+                texStore.pants[d] = d.PantsTemplate
+            end
+            d.PantsTemplate = ""
+        end
+    end)
+end
+local function setHideTexture(on)
+    State.hideTexture = on
+    if on then
+        for _, d in pairs(workspace:GetDescendants()) do
+            hideObjTexture(d)
+        end
+        for _, d in pairs(Lighting:GetDescendants()) do
+            hideObjTexture(d)
+        end
+        for _, d in pairs(Lighting:GetChildren()) do
+            hideObjTexture(d)
+        end
+        pcall(function()
+            texStore.terrainDeco = workspace.Terrain.Decoration
+            workspace.Terrain.Decoration = false
+        end)
+        task.spawn(function()
+            while State.hideTexture do
+                for _, d in pairs(workspace:GetDescendants()) do
+                    if not State.hideTexture then break end
+                    pcall(function()
+                        if d:IsA("Decal") or d:IsA("Texture") then
+                            if d.Transparency < 1 then
+                                if not texStore.decals[d] then
+                                    texStore.decals[d] = d.Transparency
+                                end
+                                d.Transparency = 1
+                            end
+                        elseif d:IsA("BasePart") and not d:IsA("Terrain") then
+                            if d.Material ~= Enum.Material.SmoothPlastic then
+                                if not texStore.materials[d] then
+                                    texStore.materials[d] = d.Material
+                                end
+                                d.Material = Enum.Material.SmoothPlastic
+                            end
+                            if d:IsA("MeshPart") and d.TextureID ~= "" then
+                                if not texStore.meshTex[d] then
+                                    texStore.meshTex[d] = d.TextureID
+                                end
+                                d.TextureID = ""
+                            end
+                        elseif d:IsA("FileMesh") and d.TextureId ~= "" then
+                            if not texStore.fileMesh[d] then
+                                texStore.fileMesh[d] = d.TextureId
+                            end
+                            d.TextureId = ""
+                        end
+                    end)
+                end
+                task.wait(3)
+            end
+        end)
+    else
+        for d, v in pairs(texStore.decals) do
+            pcall(function() d.Transparency = v end)
+        end
+        texStore.decals = {}
+        for d, p in pairs(texStore.surfApp) do
+            pcall(function() d.Parent = p end)
+        end
+        texStore.surfApp = {}
+        for d, m in pairs(texStore.materials) do
+            pcall(function() d.Material = m end)
+        end
+        texStore.materials = {}
+        for d, t in pairs(texStore.meshTex) do
+            pcall(function() d.TextureID = t end)
+        end
+        texStore.meshTex = {}
+        for d, t in pairs(texStore.fileMesh) do
+            pcall(function() d.TextureId = t end)
+        end
+        texStore.fileMesh = {}
+        for d, t in pairs(texStore.beams) do
+            pcall(function() d.Texture = t end)
+        end
+        texStore.beams = {}
+        for d, s in pairs(texStore.skies) do
+            pcall(function()
+                d.SkyboxBk = s[1]
+                d.SkyboxDn = s[2]
+                d.SkyboxFt = s[3]
+                d.SkyboxLf = s[4]
+                d.SkyboxRt = s[5]
+                d.SkyboxUp = s[6]
+            end)
+        end
+        texStore.skies = {}
+        for d, t in pairs(texStore.shirts) do
+            pcall(function() d.ShirtTemplate = t end)
+        end
+        texStore.shirts = {}
+        for d, t in pairs(texStore.pants) do
+            pcall(function() d.PantsTemplate = t end)
+        end
+        texStore.pants = {}
+        if texStore.terrainDeco ~= nil then
+            pcall(function() workspace.Terrain.Decoration = texStore.terrainDeco end)
+            texStore.terrainDeco = nil
+        end
+    end
+end
+local animConns = {}
+local disabledScripts = {}
+local hookedObjs = {}
+local function killTrack(track)
+    pcall(function()
+        track:Stop(0)
+        track:AdjustSpeed(0)
+        track:AdjustWeight(0, 0)
+    end)
+end
+local function hookAnimObj(obj)
+    if hookedObjs[obj] then return end
+    hookedObjs[obj] = true
+    pcall(function()
+        for _, track in ipairs(obj:GetPlayingAnimationTracks()) do
+            killTrack(track)
+        end
+    end)
+    local ok, conn = pcall(function()
+        return obj.AnimationPlayed:Connect(function(track)
+            killTrack(track)
+        end)
+    end)
+    if ok and conn then
+        table.insert(animConns, conn)
+    end
+end
+local function scanAnimations()
+    for _, d in pairs(workspace:GetDescendants()) do
+        if d:IsA("Animator") or d:IsA("AnimationController") or d:IsA("Humanoid") then
+            hookAnimObj(d)
+            if d:IsA("Humanoid") then
+                local animator = d:FindFirstChildOfClass("Animator")
+                if animator then
+                    hookAnimObj(animator)
+                end
+            end
+        end
+        if d:IsA("BaseScript") and string.lower(d.Name) == "animate" then
+            pcall(function()
+                if not d.Disabled then
+                    d.Disabled = true
+                    table.insert(disabledScripts, d)
+                end
+            end)
+        end
+    end
+end
+local function handleCharacter(char)
+    if not State.noAnimation then return end
+    task.wait(0.15)
+    if not State.noAnimation then return end
+    for _, d in pairs(char:GetDescendants()) do
+        if d:IsA("Animator") or d:IsA("AnimationController") or d:IsA("Humanoid") then
+            hookAnimObj(d)
+        end
+        if d:IsA("BaseScript") and string.lower(d.Name) == "animate" then
+            pcall(function()
+                d.Disabled = true
+                table.insert(disabledScripts, d)
+            end)
+        end
+    end
+    local descConn
+    descConn = char.DescendantAdded:Connect(function(d)
+        if not State.noAnimation then
+            descConn:Disconnect()
+            return
+        end
+        if d:IsA("Animator") or d:IsA("AnimationController") or d:IsA("Humanoid") then
+            task.defer(function()
+                if State.noAnimation then hookAnimObj(d) end
+            end)
+        end
+        if d:IsA("BaseScript") and string.lower(d.Name) == "animate" then
+            pcall(function()
+                d.Disabled = true
+                table.insert(disabledScripts, d)
+            end)
+        end
+    end)
+    table.insert(animConns, descConn)
+end
+local function setNoAnimation(on)
+    State.noAnimation = on
+    if on then
+        for _, conn in ipairs(animConns) do
+            pcall(function() conn:Disconnect() end)
+        end
+        animConns = {}
+        disabledScripts = {}
+        hookedObjs = {}
+        scanAnimations()
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.Character then
+                task.spawn(function() handleCharacter(p.Character) end)
+            end
+            local conn = p.CharacterAdded:Connect(function(char)
+                handleCharacter(char)
+            end)
+            table.insert(animConns, conn)
+        end
+        local pConn = Players.PlayerAdded:Connect(function(p)
+            if not State.noAnimation then return end
+            local conn = p.CharacterAdded:Connect(function(char)
+                handleCharacter(char)
+            end)
+            table.insert(animConns, conn)
+        end)
+        table.insert(animConns, pConn)
+        task.spawn(function()
+            while State.noAnimation do
+                for _, d in pairs(workspace:GetDescendants()) do
+                    if not State.noAnimation then break end
+                    if d:IsA("Animator") or d:IsA("AnimationController") or d:IsA("Humanoid") then
+                        if not hookedObjs[d] then
+                            hookAnimObj(d)
+                        end
+                        pcall(function()
+                            for _, track in ipairs(d:GetPlayingAnimationTracks()) do
+                                killTrack(track)
+                            end
+                        end)
+                    end
+                    if d:IsA("BaseScript") and string.lower(d.Name) == "animate" and not d.Disabled then
+                        pcall(function()
+                            d.Disabled = true
+                            table.insert(disabledScripts, d)
+                        end)
+                    end
+                end
+                task.wait(0.4)
+            end
+        end)
+    else
+        for _, conn in ipairs(animConns) do
+            pcall(function() conn:Disconnect() end)
+        end
+        animConns = {}
+        hookedObjs = {}
+        for _, s in ipairs(disabledScripts) do
+            pcall(function() s.Disabled = false end)
+        end
+        disabledScripts = {}
     end
 end
 workspace.DescendantAdded:Connect(function(d)
@@ -85,6 +409,35 @@ workspace.DescendantAdded:Connect(function(d)
             d.Enabled = false
         end
     end
+    if State.hideTexture then
+        hideObjTexture(d)
+    end
+    if State.noAnimation then
+        if d:IsA("Animator") or d:IsA("AnimationController") or d:IsA("Humanoid") then
+            task.defer(function()
+                if State.noAnimation then
+                    hookAnimObj(d)
+                    if d:IsA("Humanoid") then
+                        task.wait(0.1)
+                        if not State.noAnimation then return end
+                        local animator = d:FindFirstChildOfClass("Animator")
+                        if animator then hookAnimObj(animator) end
+                    end
+                end
+            end)
+        end
+        if d:IsA("BaseScript") and string.lower(d.Name) == "animate" then
+            pcall(function()
+                d.Disabled = true
+                table.insert(disabledScripts, d)
+            end)
+        end
+    end
+end)
+Lighting.DescendantAdded:Connect(function(d)
+    if State.hideTexture then
+        hideObjTexture(d)
+    end
 end)
 local gui = Instance.new("ScreenGui")
 gui.Name = "FPSBoosterBasic"
@@ -92,7 +445,7 @@ gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = player:WaitForChild("PlayerGui")
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 260, 0, 410)
+main.Size = UDim2.new(0, 260, 0, 460)
 main.AnchorPoint = Vector2.new(1, 1)
 main.Position = UDim2.new(1, -20, 1, -20)
 main.BackgroundColor3 = C.bg
@@ -149,12 +502,12 @@ local layout = Instance.new("UIListLayout")
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Padding = UDim.new(0, 2)
 layout.Parent = content
-local pad = Instance.new("UIPadding")
-pad.PaddingTop = UDim.new(0, 6)
-pad.PaddingLeft = UDim.new(0, 8)
-pad.PaddingRight = UDim.new(0, 8)
-pad.PaddingBottom = UDim.new(0, 8)
-pad.Parent = content
+local contentPad = Instance.new("UIPadding")
+contentPad.PaddingTop = UDim.new(0, 6)
+contentPad.PaddingLeft = UDim.new(0, 8)
+contentPad.PaddingRight = UDim.new(0, 8)
+contentPad.PaddingBottom = UDim.new(0, 8)
+contentPad.Parent = content
 local orderCount = 0
 local function nextOrder()
     orderCount += 1
@@ -317,6 +670,9 @@ end)
 addToggle("Low Quality", false, function(on)
     setQuality(on)
 end)
+addToggle("Hide Texture", false, function(on)
+    setHideTexture(on)
+end)
 addSep()
 addHeader("VISUAL")
 addToggle("No Atmosphere", false, function(on)
@@ -325,132 +681,8 @@ end)
 addToggle("No World Lights", false, function(on)
     setWorldLights(on)
 end)
-local animationConnections = {}
-local activeTweens = {}
-local particleEmitters = {}
-local function collectAllAnimations()
-    for _, descendant in pairs(workspace:GetDescendants()) do
-        if descendant:IsA("Humanoid") or descendant:IsA("AnimationController") then
-            if descendant:IsA("Humanoid") then
-                local animator = descendant:FindFirstChildOfClass("Animator")
-                if animator then
-                    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                        track:Stop(0)
-                    end
-                end
-            elseif descendant:IsA("AnimationController") then
-                for _, track in ipairs(descendant:GetPlayingAnimationTracks()) do
-                    track:Stop(0)
-                end
-            end
-        elseif descendant:IsA("ParticleEmitter") then
-            table.insert(particleEmitters, descendant)
-        end
-    end
-    local TweenService = game:GetService("TweenService")
-end
-local function stopCharacterAnimations()
-    for _, descendant in pairs(workspace:GetDescendants()) do
-        if descendant:IsA("Humanoid") then
-            local animator = descendant:FindFirstChildOfClass("Animator")
-            if animator then
-                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                    track:Stop(0)
-                end
-                local conn = animator.AnimationPlayed:Connect(function(track)
-                    track:Stop(0)
-                end)
-                table.insert(animationConnections, conn)
-            end
-        elseif descendant:IsA("AnimationController") then
-            for _, track in ipairs(descendant:GetPlayingAnimationTracks()) do
-                track:Stop(0)
-            end
-            local conn = descendant.AnimationPlayed:Connect(function(track)
-                track:Stop(0)
-            end)
-            table.insert(animationConnections, conn)
-        end
-    end
-end
-local function disableParticleAnimations(disable)
-    for _, emitter in ipairs(particleEmitters) do
-        if disable then
-            emitter.Enabled = false
-        else
-            emitter.Enabled = true
-        end
-    end
-    if disable then
-        local conn = workspace.DescendantAdded:Connect(function(descendant)
-            if descendant:IsA("ParticleEmitter") then
-                descendant.Enabled = false
-                table.insert(particleEmitters, descendant)
-            end
-        end)
-        table.insert(animationConnections, conn)
-    end
-end
-local function disableUIAnimations(disable)
-    local TweenService = game:GetService("TweenService")
-    if disable then
-        local oldCreate = TweenService.Create
-        TweenService.Create = function(self, instance, tweenInfo, properties)
-            local tween = oldCreate(self, instance, tweenInfo, properties)
-            table.insert(activeTweens, tween)
-            tween:Cancel()
-            return tween
-        end
-    else
-    end
-end
 addToggle("No Animation", false, function(on)
-    State.noAnimation = on
-    if on then
-        for _, conn in ipairs(animationConnections) do
-            if conn.Connected then
-                conn:Disconnect()
-            end
-        end
-        animationConnections = {}
-        particleEmitters = {}
-        activeTweens = {}
-        collectAllAnimations()
-        stopCharacterAnimations()
-        disableParticleAnimations(true)
-        for _, descendant in pairs(workspace:GetDescendants()) do
-            if descendant:IsA("Rotate") or descendant:IsA("BodyAngularVelocity") or descendant:IsA("BodyGyro") then
-                descendant.Enabled = false
-            end
-            if descendant:IsA("BodyPosition") or descendant:IsA("BodyVelocity") or descendant:IsA("BodyForce") then
-                descendant.Enabled = false
-            end
-            if descendant:IsA("AlignOrientation") or descendant:IsA("AlignPosition") or descendant:IsA("Twist") or descendant:IsA("Weld") then
-                if descendant:IsA("AlignOrientation") then
-                    descendant.Enabled = false
-                elseif descendant:IsA("AlignPosition") then
-                    descendant.Enabled = false
-                end
-            end
-        end
-    else
-        for _, conn in ipairs(animationConnections) do
-            if conn.Connected then
-                conn:Disconnect()
-            end
-        end
-        animationConnections = {}
-        for _, emitter in ipairs(particleEmitters) do
-            emitter.Enabled = true
-        end
-        particleEmitters = {}
-        for _, descendant in pairs(workspace:GetDescendants()) do
-            if descendant:IsA("Rotate") or descendant:IsA("BodyAngularVelocity") or descendant:IsA("BodyGyro") or
-               descendant:IsA("BodyPosition") or descendant:IsA("BodyVelocity") or descendant:IsA("BodyForce") then
-                descendant.Enabled = true
-            end
-        end
-    end
+    setNoAnimation(on)
 end)
 addToggle("Fullbright", false, function(state)
     State.fullbright = state
@@ -514,7 +746,7 @@ minimizeBtn.MouseButton1Click:Connect(function()
         minimizeBtn.Text = "+"
     else
         content.Visible = true
-        main.Size = UDim2.new(0, 260, 0, 410)
+        main.Size = UDim2.new(0, 260, 0, 460)
         minimizeBtn.Text = "_"
     end
 end)
@@ -545,25 +777,34 @@ end)
 task.spawn(function()
     while true do
         if State.renderOn then
-            local camPos    = camera.CFrame.Position
-            local maxDist   = math.max(80, State.renderPct * State.maxDist)
-            local fadeStart = maxDist * 0.75
+            local camPos = camera.CFrame.Position
+            local maxDist = math.max(80, State.renderPct * State.maxDist)
+            local fadeStart = maxDist * 0.7
             local fadeRange = maxDist - fadeStart
-            local char      = player.Character
-            local desc      = workspace:GetDescendants()
-            local BATCH     = 500
+            local char = player.Character
+            local camLook = camera.CFrame.LookVector
+            local desc = workspace:GetDescendants()
+            local BATCH = 400
             for i = 1, #desc, BATCH do
                 if not State.renderOn then break end
                 local last = math.min(i + BATCH - 1, #desc)
                 for j = i, last do
                     local d = desc[j]
-                    if char and d:IsDescendantOf(char) then continue end
                     if d:IsA("BasePart") then
-                        local dist = (d.Position - camPos).Magnitude
+                        if d:IsA("Terrain") then continue end
+                        if char and d:IsDescendantOf(char) then continue end
+                        if d.Transparency >= 0.95 then continue end
+                        local offset = d.Position - camPos
+                        local dist = offset.Magnitude
                         if dist > maxDist then
                             d.LocalTransparencyModifier = 1
                         elseif dist > fadeStart then
-                            d.LocalTransparencyModifier = (dist - fadeStart) / fadeRange
+                            local dot = camLook:Dot(offset.Unit)
+                            if dot < -0.3 and dist > fadeStart * 0.5 then
+                                d.LocalTransparencyModifier = 1
+                            else
+                                d.LocalTransparencyModifier = (dist - fadeStart) / fadeRange
+                            end
                         else
                             d.LocalTransparencyModifier = 0
                         end
@@ -579,18 +820,18 @@ task.spawn(function()
                 end
             end
         end
-        task.wait(0.15)
+        task.wait(0.1)
     end
 end)
 task.spawn(function()
     local frames = 0
-    local lastT  = tick()
+    local lastT = tick()
     RunService.RenderStepped:Connect(function()
         frames += 1
         local now = tick()
         if now - lastT >= 1 then
             local fps = math.floor(frames / (now - lastT))
-            fpsLabel.Text = fps .. "FPS"
+            fpsLabel.Text = fps .. " FPS"
             if fps >= 50 then
                 fpsLabel.TextColor3 = C.on
             elseif fps >= 30 then
@@ -599,7 +840,7 @@ task.spawn(function()
                 fpsLabel.TextColor3 = C.off
             end
             frames = 0
-            lastT  = now
+            lastT = now
         end
     end)
 end)
