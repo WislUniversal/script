@@ -14,7 +14,22 @@ local State = {
     noAnimation = false,
     fullbright = false,
     hideTexture = false,
+    zoomOn = false,
+    zoomHeight = 25,
 }
+local renderParts = {}
+local renderPartsMap = {}
+local renderPartsIndex = 1
+local renderPartsStale = 0
+local renderParticles = {}
+local renderParticlesMap = {}
+local renderParticlesIndex = 1
+local renderParticlesStale = 0
+local renderConn = nil
+local fpsConn = nil
+local renderDescAddConn = nil
+local renderDescRemoveConn = nil
+local zoomConn = nil
 local C = {
     bg = Color3.fromRGB(30, 30, 30),
     title = Color3.fromRGB(40, 40, 40),
@@ -155,6 +170,9 @@ local function hideObjTexture(d)
         end
     end)
 end
+local function cleanupTextureProcessing()
+    State.hideTexture = false
+end
 local function setHideTexture(on)
     State.hideTexture = on
     if on then
@@ -170,42 +188,6 @@ local function setHideTexture(on)
         pcall(function()
             texStore.terrainDeco = workspace.Terrain.Decoration
             workspace.Terrain.Decoration = false
-        end)
-        task.spawn(function()
-            while State.hideTexture do
-                for _, d in pairs(workspace:GetDescendants()) do
-                    if not State.hideTexture then break end
-                    pcall(function()
-                        if d:IsA("Decal") or d:IsA("Texture") then
-                            if d.Transparency < 1 then
-                                if not texStore.decals[d] then
-                                    texStore.decals[d] = d.Transparency
-                                end
-                                d.Transparency = 1
-                            end
-                        elseif d:IsA("BasePart") and not d:IsA("Terrain") then
-                            if d.Material ~= Enum.Material.SmoothPlastic then
-                                if not texStore.materials[d] then
-                                    texStore.materials[d] = d.Material
-                                end
-                                d.Material = Enum.Material.SmoothPlastic
-                            end
-                            if d:IsA("MeshPart") and d.TextureID ~= "" then
-                                if not texStore.meshTex[d] then
-                                    texStore.meshTex[d] = d.TextureID
-                                end
-                                d.TextureID = ""
-                            end
-                        elseif d:IsA("FileMesh") and d.TextureId ~= "" then
-                            if not texStore.fileMesh[d] then
-                                texStore.fileMesh[d] = d.TextureId
-                            end
-                            d.TextureId = ""
-                        end
-                    end)
-                end
-                task.wait(3)
-            end
         end)
     else
         for d, v in pairs(texStore.decals) do
@@ -307,8 +289,6 @@ local function scanAnimations()
 end
 local function handleCharacter(char)
     if not State.noAnimation then return end
-    task.wait(0.15)
-    if not State.noAnimation then return end
     for _, d in pairs(char:GetDescendants()) do
         if d:IsA("Animator") or d:IsA("AnimationController") or d:IsA("Humanoid") then
             hookAnimObj(d)
@@ -327,9 +307,7 @@ local function handleCharacter(char)
             return
         end
         if d:IsA("Animator") or d:IsA("AnimationController") or d:IsA("Humanoid") then
-            task.defer(function()
-                if State.noAnimation then hookAnimObj(d) end
-            end)
+            if State.noAnimation then hookAnimObj(d) end
         end
         if d:IsA("BaseScript") and string.lower(d.Name) == "animate" then
             pcall(function()
@@ -339,6 +317,18 @@ local function handleCharacter(char)
         end
     end)
     table.insert(animConns, descConn)
+end
+local function cleanupAnimationProcessing()
+    State.noAnimation = false
+    for _, conn in ipairs(animConns) do
+        pcall(function() conn:Disconnect() end)
+    end
+    animConns = {}
+    for _, s in ipairs(disabledScripts) do
+        pcall(function() s.Disabled = false end)
+    end
+    disabledScripts = {}
+    hookedObjs = {}
 end
 local function setNoAnimation(on)
     State.noAnimation = on
@@ -352,7 +342,7 @@ local function setNoAnimation(on)
         scanAnimations()
         for _, p in ipairs(Players:GetPlayers()) do
             if p.Character then
-                task.spawn(function() handleCharacter(p.Character) end)
+                handleCharacter(p.Character)
             end
             local conn = p.CharacterAdded:Connect(function(char)
                 handleCharacter(char)
@@ -367,64 +357,217 @@ local function setNoAnimation(on)
             table.insert(animConns, conn)
         end)
         table.insert(animConns, pConn)
-        task.spawn(function()
-            while State.noAnimation do
-                for _, d in pairs(workspace:GetDescendants()) do
-                    if not State.noAnimation then break end
-                    if d:IsA("Animator") or d:IsA("AnimationController") or d:IsA("Humanoid") then
-                        if not hookedObjs[d] then
-                            hookAnimObj(d)
-                        end
-                        pcall(function()
-                            for _, track in ipairs(d:GetPlayingAnimationTracks()) do
-                                killTrack(track)
-                            end
-                        end)
-                    end
-                    if d:IsA("BaseScript") and string.lower(d.Name) == "animate" and not d.Disabled then
-                        pcall(function()
-                            d.Disabled = true
-                            table.insert(disabledScripts, d)
-                        end)
-                    end
-                end
-                task.wait(0.4)
-            end
-        end)
     else
-        for _, conn in ipairs(animConns) do
-            pcall(function() conn:Disconnect() end)
-        end
-        animConns = {}
-        hookedObjs = {}
-        for _, s in ipairs(disabledScripts) do
-            pcall(function() s.Disabled = false end)
-        end
-        disabledScripts = {}
+        cleanupAnimationProcessing()
     end
 end
-workspace.DescendantAdded:Connect(function(d)
+local function setZoom(on)
+    State.zoomOn = on
+    if on then
+        local cam = workspace.CurrentCamera
+        if cam and not Utility.OriginalCamera then
+            Utility.OriginalCamera = {
+                CameraType = cam.CameraType,
+                CameraSubject = cam.CameraSubject,
+                FieldOfView = cam.FieldOfView,
+            }
+        end
+        if zoomConn then
+            zoomConn:Disconnect()
+        end
+        zoomConn = RunService.RenderStepped:Connect(function()
+            if not State.zoomOn then return end
+            local camNow = workspace.CurrentCamera
+            if not camNow then return end
+            local char = player.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            camNow.CameraType = Enum.CameraType.Scriptable
+            local height = State.zoomHeight or 25
+            local pos = hrp.Position + Vector3.new(0, height, 0)
+            camNow.CFrame = CFrame.new(pos, hrp.Position)
+        end)
+    else
+        if zoomConn then
+            zoomConn:Disconnect()
+            zoomConn = nil
+        end
+        local cam = workspace.CurrentCamera
+        if Utility.OriginalCamera and cam then
+            cam.CameraType = Utility.OriginalCamera.CameraType
+            cam.CameraSubject = Utility.OriginalCamera.CameraSubject
+            cam.FieldOfView = Utility.OriginalCamera.FieldOfView
+        end
+        Utility.OriginalCamera = nil
+    end
+end
+local function addRenderPart(part)
+    if renderPartsMap[part] then return end
+    renderPartsMap[part] = true
+    table.insert(renderParts, part)
+end
+local function removeRenderPart(part)
+    if not renderPartsMap[part] then return end
+    renderPartsMap[part] = nil
+    renderPartsStale += 1
+end
+local function addRenderParticle(p)
+    if renderParticlesMap[p] then return end
+    renderParticlesMap[p] = true
+    table.insert(renderParticles, p)
+end
+local function removeRenderParticle(p)
+    if not renderParticlesMap[p] then return end
+    renderParticlesMap[p] = nil
+    renderParticlesStale += 1
+end
+local function rebuildRenderParts()
+    local newList = {}
+    for part in pairs(renderPartsMap) do
+        table.insert(newList, part)
+    end
+    renderParts = newList
+    renderPartsIndex = 1
+    renderPartsStale = 0
+end
+local function rebuildRenderParticles()
+    local newList = {}
+    for p in pairs(renderParticlesMap) do
+        table.insert(newList, p)
+    end
+    renderParticles = newList
+    renderParticlesIndex = 1
+    renderParticlesStale = 0
+end
+local function initRenderLists()
+    renderParts = {}
+    renderParticles = {}
+    renderPartsMap = {}
+    renderParticlesMap = {}
+    renderPartsIndex = 1
+    renderParticlesIndex = 1
+    renderPartsStale = 0
+    renderParticlesStale = 0
+    for _, d in pairs(workspace:GetDescendants()) do
+        if d:IsA("BasePart") and not d:IsA("Terrain") then
+            addRenderPart(d)
+        elseif d:IsA("ParticleEmitter") or d:IsA("Trail") then
+            addRenderParticle(d)
+        end
+    end
+end
+local function stepRender()
+    if not State.renderOn then return end
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    local camPos = cam.CFrame.Position
+    local maxDist = math.max(80, State.renderPct * State.maxDist)
+    local fadeStart = maxDist * 0.7
+    local fadeRange = maxDist - fadeStart
+    local char = player.Character
+    local camLook = cam.CFrame.LookVector
+    local maxPartsPerFrame = 300
+    local processed = 0
+    local partCount = #renderParts
+    if renderPartsStale > partCount then
+        rebuildRenderParts()
+        partCount = #renderParts
+    end
+    while processed < maxPartsPerFrame and partCount > 0 do
+        if renderPartsIndex > partCount then
+            renderPartsIndex = 1
+        end
+        local part = renderParts[renderPartsIndex]
+        renderPartsIndex += 1
+        if part and renderPartsMap[part] then
+            if part:IsA("BasePart") then
+                if not (char and part:IsDescendantOf(char)) and part.Transparency < 0.95 then
+                    local offset = part.Position - camPos
+                    local distSq = offset.X^2 + offset.Y^2 + offset.Z^2
+                    local maxDistSq = maxDist * maxDist
+                    if distSq > maxDistSq then
+                        if part.LocalTransparencyModifier < 0.99 then
+                            part.LocalTransparencyModifier = 1
+                        end
+                    elseif distSq > (fadeStart * fadeStart) then
+                        local dot = camLook:Dot(offset.Unit)
+                        if dot < -0.3 and distSq > (fadeStart * 0.5) ^ 2 then
+                            if part.LocalTransparencyModifier < 0.99 then
+                                part.LocalTransparencyModifier = 1
+                            end
+                        else
+                            local dist = math.sqrt(distSq)
+                            local newTransparency = (dist - fadeStart) / fadeRange
+                            if math.abs(part.LocalTransparencyModifier - newTransparency) > 0.01 then
+                                part.LocalTransparencyModifier = newTransparency
+                            end
+                        end
+                    else
+                        if part.LocalTransparencyModifier > 0.01 then
+                            part.LocalTransparencyModifier = 0
+                        end
+                    end
+                end
+            end
+        else
+            renderPartsStale += 1
+        end
+        processed += 1
+    end
+    local particleCount = #renderParticles
+    if renderParticlesStale > particleCount then
+        rebuildRenderParticles()
+        particleCount = #renderParticles
+    end
+    local processedP = 0
+    local maxParticlesPerFrame = 200
+    while processedP < maxParticlesPerFrame and particleCount > 0 do
+        if renderParticlesIndex > particleCount then
+            renderParticlesIndex = 1
+        end
+        local p = renderParticles[renderParticlesIndex]
+        renderParticlesIndex += 1
+        if p and renderParticlesMap[p] then
+            if not State.particlesOff then
+                local parent = p.Parent
+                if parent and parent:IsA("BasePart") then
+                    local offset = parent.Position - camPos
+                    local distSq = offset.X^2 + offset.Y^2 + offset.Z^2
+                    local enabled = distSq <= (maxDist * maxDist)
+                    if p.Enabled ~= enabled then
+                        p.Enabled = enabled
+                    end
+                end
+            end
+        else
+            renderParticlesStale += 1
+        end
+        processedP += 1
+    end
+end
+renderDescAddConn = workspace.DescendantAdded:Connect(function(d)
     if State.particlesOff then
         if d:IsA("ParticleEmitter") or d:IsA("Fire") or d:IsA("Smoke") or d:IsA("Sparkles") or d:IsA("Trail") then
             d.Enabled = false
         end
+    end
+    if d:IsA("BasePart") and not d:IsA("Terrain") then
+        addRenderPart(d)
+    elseif d:IsA("ParticleEmitter") or d:IsA("Trail") then
+        addRenderParticle(d)
     end
     if State.hideTexture then
         hideObjTexture(d)
     end
     if State.noAnimation then
         if d:IsA("Animator") or d:IsA("AnimationController") or d:IsA("Humanoid") then
-            task.defer(function()
-                if State.noAnimation then
-                    hookAnimObj(d)
-                    if d:IsA("Humanoid") then
-                        task.wait(0.1)
-                        if not State.noAnimation then return end
-                        local animator = d:FindFirstChildOfClass("Animator")
-                        if animator then hookAnimObj(animator) end
-                    end
+            if State.noAnimation then
+                hookAnimObj(d)
+                if d:IsA("Humanoid") then
+                    local animator = d:FindFirstChildOfClass("Animator")
+                    if animator then hookAnimObj(animator) end
                 end
-            end)
+            end
         end
         if d:IsA("BaseScript") and string.lower(d.Name) == "animate" then
             pcall(function()
@@ -432,6 +575,13 @@ workspace.DescendantAdded:Connect(function(d)
                 table.insert(disabledScripts, d)
             end)
         end
+    end
+end)
+renderDescRemoveConn = workspace.DescendantRemoving:Connect(function(d)
+    if d:IsA("BasePart") and not d:IsA("Terrain") then
+        removeRenderPart(d)
+    elseif d:IsA("ParticleEmitter") or d:IsA("Trail") then
+        removeRenderParticle(d)
     end
 end)
 Lighting.DescendantAdded:Connect(function(d)
@@ -719,6 +869,14 @@ addToggle("Fullbright", false, function(state)
         end
     end
 end)
+addSep()
+addHeader("CAMERA")
+addToggle("Zoom Look Down", false, function(on)
+    setZoom(on)
+end)
+addSlider("Zoom Height", 0.2, function(v)
+    State.zoomHeight = 6 + (v * 54)
+end)
 local dragOn, dragStart, startPos = false, nil, nil
 titleBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -774,59 +932,14 @@ UIS.InputBegan:Connect(function(input, gpe)
         gui.Enabled = not gui.Enabled
     end
 end)
-task.spawn(function()
-    while true do
-        if State.renderOn then
-            local camPos = camera.CFrame.Position
-            local maxDist = math.max(80, State.renderPct * State.maxDist)
-            local fadeStart = maxDist * 0.7
-            local fadeRange = maxDist - fadeStart
-            local char = player.Character
-            local camLook = camera.CFrame.LookVector
-            local desc = workspace:GetDescendants()
-            local BATCH = 400
-            for i = 1, #desc, BATCH do
-                if not State.renderOn then break end
-                local last = math.min(i + BATCH - 1, #desc)
-                for j = i, last do
-                    local d = desc[j]
-                    if d:IsA("BasePart") then
-                        if d:IsA("Terrain") then continue end
-                        if char and d:IsDescendantOf(char) then continue end
-                        if d.Transparency >= 0.95 then continue end
-                        local offset = d.Position - camPos
-                        local dist = offset.Magnitude
-                        if dist > maxDist then
-                            d.LocalTransparencyModifier = 1
-                        elseif dist > fadeStart then
-                            local dot = camLook:Dot(offset.Unit)
-                            if dot < -0.3 and dist > fadeStart * 0.5 then
-                                d.LocalTransparencyModifier = 1
-                            else
-                                d.LocalTransparencyModifier = (dist - fadeStart) / fadeRange
-                            end
-                        else
-                            d.LocalTransparencyModifier = 0
-                        end
-                    elseif not State.particlesOff and (d:IsA("ParticleEmitter") or d:IsA("Trail")) then
-                        local p = d.Parent
-                        if p and p:IsA("BasePart") then
-                            d.Enabled = (p.Position - camPos).Magnitude <= maxDist
-                        end
-                    end
-                end
-                if last < #desc then
-                    RunService.Heartbeat:Wait()
-                end
-            end
-        end
-        task.wait(0.1)
-    end
+initRenderLists()
+renderConn = RunService.RenderStepped:Connect(function()
+    stepRender()
 end)
-task.spawn(function()
+do
     local frames = 0
     local lastT = tick()
-    RunService.RenderStepped:Connect(function()
+    fpsConn = RunService.RenderStepped:Connect(function()
         frames += 1
         local now = tick()
         if now - lastT >= 1 then
@@ -843,4 +956,40 @@ task.spawn(function()
             lastT = now
         end
     end)
-end)
+end
+local function cleanupAll()
+    State.renderOn = false
+    State.hideTexture = false
+    State.noAnimation = false
+    setZoom(false)
+    cleanupTextureProcessing()
+    cleanupAnimationProcessing()
+    resetRender()
+    setParticles(false)
+    setPostEffects(false)
+    setShadows(false)
+    if State.fullbright then
+        State.fullbright = false
+        if Utility.FullbrightConn then
+            Utility.FullbrightConn:Disconnect()
+            Utility.FullbrightConn = nil
+        end
+    end
+    if renderConn then
+        renderConn:Disconnect()
+        renderConn = nil
+    end
+    if fpsConn then
+        fpsConn:Disconnect()
+        fpsConn = nil
+    end
+    if renderDescAddConn then
+        renderDescAddConn:Disconnect()
+        renderDescAddConn = nil
+    end
+    if renderDescRemoveConn then
+        renderDescRemoveConn:Disconnect()
+        renderDescRemoveConn = nil
+    end
+end
+game:BindToClose(cleanupAll)
