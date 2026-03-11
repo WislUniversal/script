@@ -9,7 +9,6 @@ local State = {
     renderOn = false,
     renderPct = 0.5,
     maxDist = 1500,
-    folded = false,
     particlesOff = false,
     noAnimation = false,
     fullbright = false,
@@ -83,6 +82,7 @@ local function setAtmosphere(off)
             obj.Density = off and 0 or 0.395
             obj.Glare = off and 0 or 0
             obj.Haze = off and 0 or 0
+            obj.Visible = not off
         end
     end
 end
@@ -98,7 +98,7 @@ local function resetRender()
     for _, d in pairs(workspace:GetDescendants()) do
         if d:IsA("BasePart") then
             d.LocalTransparencyModifier = 0
-        elseif (d:IsA("ParticleEmitter") or d:IsA("Trail")) and not State.particlesOff then
+        elseif d:IsA("ParticleEmitter") or d:IsA("Trail") then
             d.Enabled = true
         end
     end
@@ -311,7 +311,7 @@ local function handleCharacter(char)
     local descConn
     descConn = char.DescendantAdded:Connect(function(d)
         if not State.noAnimation then
-            descConn:Disconnect()
+            if descConn then descConn:Disconnect() end
             return
         end
         if d:IsA("Animator") or d:IsA("AnimationController") or d:IsA("Humanoid") then
@@ -348,6 +348,7 @@ local function setNoAnimation(on)
         disabledScripts = {}
         hookedObjs = {}
         scanAnimations()
+        local characterAddedConns = {}
         for _, p in ipairs(Players:GetPlayers()) do
             if p.Character then
                 handleCharacter(p.Character)
@@ -355,16 +356,19 @@ local function setNoAnimation(on)
             local conn = p.CharacterAdded:Connect(function(char)
                 handleCharacter(char)
             end)
-            table.insert(animConns, conn)
+            table.insert(characterAddedConns, conn)
         end
         local pConn = Players.PlayerAdded:Connect(function(p)
             if not State.noAnimation then return end
             local conn = p.CharacterAdded:Connect(function(char)
                 handleCharacter(char)
             end)
-            table.insert(animConns, conn)
+            table.insert(characterAddedConns, conn)
         end)
         table.insert(animConns, pConn)
+        for _, conn in ipairs(characterAddedConns) do
+            table.insert(animConns, conn)
+        end
     else
         cleanupAnimationProcessing()
     end
@@ -470,7 +474,7 @@ local function stepRender()
     if not cam then return end
     local camPos = cam.CFrame.Position
     local pct = State.renderPct
-    local maxDist = pct <= 0 and 0 or math.max(80, pct * State.maxDist)
+    local maxDist = pct <= 0.01 and 0 or math.max(80, pct * State.maxDist)
     local fadeStart = maxDist * 0.7
     local fadeRange = maxDist - fadeStart
     local char = player.Character
@@ -510,7 +514,8 @@ local function stepRender()
                                 part.LocalTransparencyModifier = 1
                             end
                         elseif distSq > fadeStartSq then
-                            local dot = camLook:Dot(offset.Unit)
+                            local offsetUnit = offset.Magnitude > 0 and offset.Unit or Vector3.new(0, 1, 0)
+                            local dot = camLook:Dot(offsetUnit)
                             if dot < -0.3 and distSq > fadeStartHalfSq then
                                 if part.LocalTransparencyModifier < 0.99 then
                                     part.LocalTransparencyModifier = 1
@@ -639,54 +644,45 @@ local gui = Instance.new("ScreenGui")
 gui.Name = "FPSBoosterBasic"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.DisplayOrder = 100
 gui.Parent = player:WaitForChild("PlayerGui")
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 260, 0, 460)
-main.AnchorPoint = Vector2.new(1, 1)
-main.Position = UDim2.new(1, -20, 1, -20)
+main.Size = UDim2.new(0, 240, 0, 380)
+main.AnchorPoint = Vector2.new(0.5, 0.5)
+main.Position = UDim2.new(0.5, 0, 0.5, 0)
 main.BackgroundColor3 = C.bg
 main.BorderSizePixel = 1
 main.BorderColor3 = C.border
 main.ClipsDescendants = true
 main.Parent = gui
 local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1, 0, 0, 32)
+titleBar.Size = UDim2.new(1, 0, 0, 28)
 titleBar.BackgroundColor3 = C.title
 titleBar.BorderSizePixel = 0
 titleBar.Parent = main
 local titleText = Instance.new("TextLabel")
-titleText.Size = UDim2.new(1, -70, 1, 0)
-titleText.Position = UDim2.new(0, 10, 0, 0)
+titleText.Size = UDim2.new(1, 0, 1, 0)
+titleText.Position = UDim2.new(0, 8, 0, 0)
 titleText.BackgroundTransparency = 1
 titleText.Text = "FPS Booster"
 titleText.TextColor3 = C.white
-titleText.TextSize = 15
+titleText.TextSize = 14
 titleText.Font = Enum.Font.SourceSansBold
 titleText.TextXAlignment = Enum.TextXAlignment.Left
 titleText.Parent = titleBar
 local fpsLabel = Instance.new("TextLabel")
-fpsLabel.Size = UDim2.new(0, 55, 1, 0)
-fpsLabel.Position = UDim2.new(1, -100, 0, 0)
+fpsLabel.Size = UDim2.new(0, 50, 1, 0)
+fpsLabel.Position = UDim2.new(1, -55, 0, 0)
 fpsLabel.BackgroundTransparency = 1
 fpsLabel.Text = "-- FPS"
 fpsLabel.TextColor3 = C.on
-fpsLabel.TextSize = 12
-fpsLabel.Font = Enum.Font.SourceSansBold 
+fpsLabel.TextSize = 11
+fpsLabel.Font = Enum.Font.SourceSansBold
 fpsLabel.TextXAlignment = Enum.TextXAlignment.Right
 fpsLabel.Parent = titleBar
-local minimizeBtn = Instance.new("TextButton")
-minimizeBtn.Size = UDim2.new(0, 32, 0, 24)
-minimizeBtn.Position = UDim2.new(1, -38, 0, 4)
-minimizeBtn.BackgroundColor3 = C.slider
-minimizeBtn.BorderSizePixel = 0
-minimizeBtn.Text = "_"
-minimizeBtn.TextColor3 = C.white
-minimizeBtn.TextSize = 16
-minimizeBtn.Font = Enum.Font.SourceSansBold
-minimizeBtn.Parent = titleBar
 local content = Instance.new("ScrollingFrame")
-content.Size = UDim2.new(1, 0, 1, -32)
-content.Position = UDim2.new(0, 0, 0, 32)
+content.Size = UDim2.new(1, 0, 1, -28)
+content.Position = UDim2.new(0, 0, 0, 28)
 content.BackgroundTransparency = 1
 content.BorderSizePixel = 0
 content.ScrollBarThickness = 4
@@ -711,12 +707,12 @@ local function nextOrder()
 end
 local function addHeader(text)
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, 0, 0, 24)
+    lbl.Size = UDim2.new(1, 0, 0, 20)
     lbl.BackgroundColor3 = C.section
     lbl.BorderSizePixel = 0
     lbl.Text = "  " .. text
     lbl.TextColor3 = C.fill
-    lbl.TextSize = 12
+    lbl.TextSize = 11
     lbl.Font = Enum.Font.SourceSansBold
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.LayoutOrder = nextOrder()
@@ -732,28 +728,28 @@ local function addSep()
 end
 local function addToggle(text, default, callback)
     local row = Instance.new("Frame")
-    row.Size = UDim2.new(1, 0, 0, 30)
+    row.Size = UDim2.new(1, 0, 0, 26)
     row.BackgroundTransparency = 1
     row.LayoutOrder = nextOrder()
     row.Parent = content
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1, -60, 1, 0)
+    lbl.Size = UDim2.new(1, -55, 1, 0)
     lbl.Position = UDim2.new(0, 4, 0, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = text
     lbl.TextColor3 = C.text
-    lbl.TextSize = 13
+    lbl.TextSize = 12
     lbl.Font = Enum.Font.SourceSans
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = row
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 50, 0, 22)
-    btn.Position = UDim2.new(1, -54, 0.5, -11)
+    btn.Size = UDim2.new(0, 45, 0, 20)
+    btn.Position = UDim2.new(1, -50, 0.5, -10)
     btn.BackgroundColor3 = default and C.on or C.off
     btn.BorderSizePixel = 0
     btn.Text = default and "ON" or "OFF"
     btn.TextColor3 = C.white
-    btn.TextSize = 11
+    btn.TextSize = 10
     btn.Font = Enum.Font.SourceSansBold
     btn.Parent = row
     local on = default
@@ -767,33 +763,33 @@ local function addToggle(text, default, callback)
 end
 local function addSlider(text, default, callback)
     local box = Instance.new("Frame")
-    box.Size = UDim2.new(1, 0, 0, 42)
+    box.Size = UDim2.new(1, 0, 0, 36)
     box.BackgroundTransparency = 1
     box.LayoutOrder = nextOrder()
     box.Parent = content
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(0.7, 0, 0, 16)
+    lbl.Size = UDim2.new(0.65, 0, 0, 14)
     lbl.Position = UDim2.new(0, 4, 0, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = text
     lbl.TextColor3 = C.text
-    lbl.TextSize = 13
+    lbl.TextSize = 12
     lbl.Font = Enum.Font.SourceSans
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = box
     local valLbl = Instance.new("TextLabel")
-    valLbl.Size = UDim2.new(0.3, 0, 0, 16)
-    valLbl.Position = UDim2.new(0.7, 0, 0, 0)
+    valLbl.Size = UDim2.new(0.35, 0, 0, 14)
+    valLbl.Position = UDim2.new(0.65, 0, 0, 0)
     valLbl.BackgroundTransparency = 1
     valLbl.Text = math.floor(default * 100) .. "%"
     valLbl.TextColor3 = C.fill
-    valLbl.TextSize = 13
+    valLbl.TextSize = 12
     valLbl.Font = Enum.Font.SourceSansBold
     valLbl.TextXAlignment = Enum.TextXAlignment.Right
     valLbl.Parent = box
     local track = Instance.new("Frame")
-    track.Size = UDim2.new(1, -8, 0, 8)
-    track.Position = UDim2.new(0, 4, 0, 24)
+    track.Size = UDim2.new(1, -8, 0, 6)
+    track.Position = UDim2.new(0, 4, 0, 18)
     track.BackgroundColor3 = C.slider
     track.BorderSizePixel = 0
     track.Parent = box
@@ -803,16 +799,16 @@ local function addSlider(text, default, callback)
     fill.BorderSizePixel = 0
     fill.Parent = track
     local handle = Instance.new("Frame")
-    handle.Size = UDim2.new(0, 12, 0, 16)
-    handle.Position = UDim2.new(default, -6, 0.5, -8)
+    handle.Size = UDim2.new(0, 10, 0, 14)
+    handle.Position = UDim2.new(default, -5, 0.5, -7)
     handle.BackgroundColor3 = C.white
     handle.BorderSizePixel = 1
     handle.BorderColor3 = C.border
     handle.ZIndex = 3
     handle.Parent = track
     local hit = Instance.new("TextButton")
-    hit.Size = UDim2.new(1, 10, 0, 24)
-    hit.Position = UDim2.new(0, -5, 0, 16)
+    hit.Size = UDim2.new(1, 10, 0, 20)
+    hit.Position = UDim2.new(0, -5, 0, 14)
     hit.BackgroundTransparency = 1
     hit.Text = ""
     hit.ZIndex = 5
@@ -942,33 +938,39 @@ UIS.InputEnded:Connect(function(input)
         dragOn = false
     end
 end)
-minimizeBtn.MouseButton1Click:Connect(function()
-    State.folded = not State.folded
-    if State.folded then
-        content.Visible = false
-        main.Size = UDim2.new(0, 260, 0, 32)
-        minimizeBtn.Text = "+"
-    else
-        content.Visible = true
-        main.Size = UDim2.new(0, 260, 0, 460)
-        minimizeBtn.Text = "_"
-    end
-end)
 local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(0, 50, 0, 50)
-toggleBtn.Position = UDim2.new(1, -70, 1, -70)
+toggleBtn.Size = UDim2.new(0, 45, 0, 45)
+toggleBtn.Position = UDim2.new(0, 10, 1, -55)
 toggleBtn.BackgroundColor3 = C.title
 toggleBtn.BorderSizePixel = 1
 toggleBtn.BorderColor3 = C.border
 toggleBtn.Text = "FPS"
 toggleBtn.TextColor3 = C.white
-toggleBtn.TextSize = 14
+toggleBtn.TextSize = 13
 toggleBtn.Font = Enum.Font.SourceSansBold
 toggleBtn.Parent = gui
+local toggleDragOn, toggleDragStart, toggleStartPos = false, nil, nil
+toggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        toggleDragOn = true
+        toggleDragStart = input.Position
+        toggleStartPos = toggleBtn.Position
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if toggleDragOn and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local d = input.Position - toggleDragStart
+        toggleBtn.Position = UDim2.new(toggleStartPos.X.Scale, toggleStartPos.X.Offset + d.X, toggleStartPos.Y.Scale, toggleStartPos.Y.Offset + d.Y)
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        toggleDragOn = false
+    end
+end)
 toggleBtn.MouseButton1Click:Connect(function()
     main.Visible = not main.Visible
     if main.Visible then
-        main.AnchorPoint = Vector2.new(0.5, 0.5)
         main.Position = UDim2.new(0.5, 0, 0.5, 0)
     end
 end)
@@ -984,10 +986,10 @@ renderConn = RunService.RenderStepped:Connect(function()
 end)
 do
     local frames = 0
-    local lastT = tick()
+    local lastT = os.clock()
     fpsConn = RunService.RenderStepped:Connect(function()
         frames += 1
-        local now = tick()
+        local now = os.clock()
         if now - lastT >= 1 then
             local fps = math.floor(frames / (now - lastT))
             fpsLabel.Text = fps .. " FPS"
