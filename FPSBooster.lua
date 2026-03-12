@@ -33,6 +33,9 @@ local fpsConn = nil
 local renderDescAddConn = nil
 local renderDescRemoveConn = nil
 local zoomConn = nil
+local MAX_PARTS_PER_FRAME = 200
+local MAX_PARTICLES_PER_FRAME = 100
+local CLEANUP_INTERVAL = 20
 local C = {
     bg = Color3.fromRGB(30, 30, 30),
     title = Color3.fromRGB(40, 40, 40),
@@ -64,7 +67,8 @@ local function setPostEffects(off)
 end
 local function setParticles(off)
     State.particlesOff = off
-    for _, d in pairs(workspace:GetDescendants()) do
+    local descendants = workspace:GetDescendants()
+    for _, d in ipairs(descendants) do
         if d:IsA("ParticleEmitter") or d:IsA("Fire") or d:IsA("Smoke") or d:IsA("Sparkles") or d:IsA("Trail") then
             d.Enabled = not off
         end
@@ -88,7 +92,8 @@ local function setAtmosphere(off)
 end
 local function setWorldLights(off)
     State.worldLightsOff = off
-    for _, d in pairs(workspace:GetDescendants()) do
+    local descendants = workspace:GetDescendants()
+    for _, d in ipairs(descendants) do
         if d:IsA("SpotLight") or d:IsA("PointLight") or d:IsA("SurfaceLight") then
             d.Enabled = not off
         end
@@ -104,15 +109,15 @@ local function resetRender()
     end
 end
 local texStore = {
-    decals = {},
-    surfApp = {},
-    materials = {},
-    meshTex = {},
-    fileMesh = {},
-    beams = {},
-    skies = {},
-    shirts = {},
-    pants = {},
+    decals = setmetatable({}, {__mode="k"}),
+    surfApp = setmetatable({}, {__mode="k"}),
+    materials = setmetatable({}, {__mode="k"}),
+    meshTex = setmetatable({}, {__mode="k"}),
+    fileMesh = setmetatable({}, {__mode="k"}),
+    beams = setmetatable({}, {__mode="k"}),
+    skies = setmetatable({}, {__mode="k"}),
+    shirts = setmetatable({}, {__mode="k"}),
+    pants = setmetatable({}, {__mode="k"}),
     terrainDeco = nil,
 }
 local function hideObjTexture(d)
@@ -184,13 +189,16 @@ end
 local function setHideTexture(on)
     State.hideTexture = on
     if on then
-        for _, d in pairs(workspace:GetDescendants()) do
+        local wsDescendants = workspace:GetDescendants()
+        local lightingDescendants = Lighting:GetDescendants()
+        
+        for _, d in ipairs(wsDescendants) do
             hideObjTexture(d)
         end
-        for _, d in pairs(Lighting:GetDescendants()) do
+        for _, d in ipairs(lightingDescendants) do
             hideObjTexture(d)
         end
-        for _, d in pairs(Lighting:GetChildren()) do
+        for _, d in ipairs(Lighting:GetChildren()) do
             hideObjTexture(d)
         end
         pcall(function()
@@ -275,7 +283,8 @@ local function hookAnimObj(obj)
     end
 end
 local function scanAnimations()
-    for _, d in pairs(workspace:GetDescendants()) do
+    local descendants = workspace:GetDescendants()
+    for _, d in ipairs(descendants) do
         if d:IsA("Animator") or d:IsA("AnimationController") or d:IsA("Humanoid") then
             hookAnimObj(d)
             if d:IsA("Humanoid") then
@@ -348,7 +357,6 @@ local function setNoAnimation(on)
         disabledScripts = {}
         hookedObjs = {}
         scanAnimations()
-        local characterAddedConns = {}
         for _, p in ipairs(Players:GetPlayers()) do
             if p.Character then
                 handleCharacter(p.Character)
@@ -356,19 +364,16 @@ local function setNoAnimation(on)
             local conn = p.CharacterAdded:Connect(function(char)
                 handleCharacter(char)
             end)
-            table.insert(characterAddedConns, conn)
+            table.insert(animConns, conn)
         end
         local pConn = Players.PlayerAdded:Connect(function(p)
             if not State.noAnimation then return end
             local conn = p.CharacterAdded:Connect(function(char)
                 handleCharacter(char)
             end)
-            table.insert(characterAddedConns, conn)
+            table.insert(animConns, conn)
         end)
         table.insert(animConns, pConn)
-        for _, conn in ipairs(characterAddedConns) do
-            table.insert(animConns, conn)
-        end
     else
         cleanupAnimationProcessing()
     end
@@ -490,7 +495,8 @@ local function stepRender()
         rebuildRenderParts()
         partCount = #renderParts
     end
-    while partCount > 0 do
+    local partsProcessed = 0
+    for i = 1, MAX_PARTS_PER_FRAME do
         if os.clock() - timeStart > partsBudget then
             break
         end
@@ -499,6 +505,12 @@ local function stepRender()
         end
         local part = renderParts[renderPartsIndex]
         renderPartsIndex += 1
+        if not part or not part.Parent then
+            renderPartsMap[part] = nil
+            renderPartsStale += 1
+            partsProcessed += 1
+            continue
+        end
         if part and renderPartsMap[part] then
             if part:IsA("BasePart") then
                 if not (char and part:IsDescendantOf(char)) and part.Transparency < 0.95 then
@@ -538,6 +550,7 @@ local function stepRender()
         else
             renderPartsStale += 1
         end
+        partsProcessed += 1
     end
     timeStart = os.clock()
     local particleCount = #renderParticles
@@ -545,7 +558,8 @@ local function stepRender()
         rebuildRenderParticles()
         particleCount = #renderParticles
     end
-    while particleCount > 0 do
+    local particlesProcessed = 0
+    for i = 1, MAX_PARTICLES_PER_FRAME do
         if os.clock() - timeStart > particlesBudget then
             break
         end
@@ -554,6 +568,12 @@ local function stepRender()
         end
         local p = renderParticles[renderParticlesIndex]
         renderParticlesIndex += 1
+        if not p or not p.Parent then
+            renderParticlesMap[p] = nil
+            renderParticlesStale += 1
+            particlesProcessed += 1
+            continue
+        end
         if p and renderParticlesMap[p] then
             if not State.particlesOff then
                 local parent = p.Parent
@@ -574,6 +594,7 @@ local function stepRender()
         else
             renderParticlesStale += 1
         end
+        particlesProcessed += 1
     end
 end
 renderDescAddConn = workspace.DescendantAdded:Connect(function(d)
@@ -983,6 +1004,15 @@ end)
 initRenderLists()
 renderConn = RunService.RenderStepped:Connect(function()
     stepRender()
+end)
+task.spawn(function()
+    while true do
+        task.wait(CLEANUP_INTERVAL)
+        if not State.renderOn then continue end
+        rebuildRenderParts()
+        rebuildRenderParticles()
+        collectgarbage("collect")
+    end
 end)
 do
     local frames = 0
