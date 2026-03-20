@@ -19,6 +19,7 @@ local State = {
     worldLightsOff = false,
     zoomOn = false,
     zoomHeight = 60,
+    hidePlayer = false,
 }
 local renderParts = {}
 local renderPartsMap = {}
@@ -33,6 +34,7 @@ local fpsConn = nil
 local renderDescAddConn = nil
 local renderDescRemoveConn = nil
 local zoomConn = nil
+local hidePlayerConn = nil
 local MAX_PARTS_PER_FRAME = 200
 local MAX_PARTICLES_PER_FRAME = 100
 local CLEANUP_INTERVAL = 20
@@ -49,29 +51,108 @@ local C = {
     white = Color3.fromRGB(255, 255, 255),
     border = Color3.fromRGB(55, 55, 55),
 }
+local shadowStore = {}
 local function setShadows(off)
     State.shadowsOff = off
     pcall(function()
-        Lighting.GlobalShadows = not off
-        Lighting.EnvironmentSpecularScale = off and 0 or 1
-        Lighting.EnvironmentDiffuseScale = off and 0 or 1
+        if off then
+            if not shadowStore.GlobalShadows then
+                shadowStore.GlobalShadows = Lighting.GlobalShadows
+                shadowStore.EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale
+                shadowStore.EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale
+            end
+            Lighting.GlobalShadows = false
+            Lighting.EnvironmentSpecularScale = 0
+            Lighting.EnvironmentDiffuseScale = 0
+        else
+            if shadowStore.GlobalShadows ~= nil then
+                Lighting.GlobalShadows = shadowStore.GlobalShadows
+                Lighting.EnvironmentSpecularScale = shadowStore.EnvironmentSpecularScale
+                Lighting.EnvironmentDiffuseScale = shadowStore.EnvironmentDiffuseScale
+                shadowStore = {}
+            end
+        end
     end)
+end
+local atmosphereStore = setmetatable({}, {__mode = "k"})
+local postEffectsStore = setmetatable({}, {__mode = "k"})
+local function setAtmosphere(off)
+    State.atmosphereOff = off
+    if off then
+        for _, obj in pairs(Lighting:GetChildren()) do
+            if obj:IsA("Atmosphere") then
+                if not atmosphereStore[obj] then
+                    atmosphereStore[obj] = {
+                        Density = obj.Density,
+                        Glare = obj.Glare,
+                        Haze = obj.Haze,
+                        Visible = obj.Visible,
+                    }
+                end
+                obj.Density = 0
+                obj.Glare = 0
+                obj.Haze = 0
+                obj.Visible = false
+            end
+        end
+    else
+        for obj, vals in pairs(atmosphereStore) do
+            pcall(function()
+                if obj and obj.Parent then
+                    obj.Density = vals.Density
+                    obj.Glare = vals.Glare
+                    obj.Haze = vals.Haze
+                    obj.Visible = vals.Visible
+                end
+            end)
+        end
+        atmosphereStore = setmetatable({}, {__mode = "k"})
+    end
 end
 local function setPostEffects(off)
     State.postEffectsOff = off
-    for _, obj in pairs(Lighting:GetChildren()) do
-        if obj:IsA("PostEffect") then
-            obj.Enabled = not off
+    if off then
+        for _, obj in pairs(Lighting:GetChildren()) do
+            if obj:IsA("PostEffect") then
+                if not postEffectsStore[obj] then
+                    postEffectsStore[obj] = obj.Enabled
+                end
+                obj.Enabled = false
+            end
         end
+    else
+        for obj, enabled in pairs(postEffectsStore) do
+            pcall(function()
+                if obj and obj.Parent then
+                    obj.Enabled = enabled
+                end
+            end)
+        end
+        postEffectsStore = setmetatable({}, {__mode = "k"})
     end
 end
+local particlesStore = setmetatable({}, {__mode = "k"})
 local function setParticles(off)
     State.particlesOff = off
-    local descendants = workspace:GetDescendants()
-    for _, d in ipairs(descendants) do
-        if d:IsA("ParticleEmitter") or d:IsA("Fire") or d:IsA("Smoke") or d:IsA("Sparkles") or d:IsA("Trail") then
-            d.Enabled = not off
+    if off then
+        local descendants = workspace:GetDescendants()
+        for _, d in ipairs(descendants) do
+            if d:IsA("ParticleEmitter") or d:IsA("Fire") or d:IsA("Smoke") or d:IsA("Sparkles") or d:IsA("Trail") then
+                if not particlesStore[d] then
+                    particlesStore[d] = d.Enabled
+                end
+                d.Enabled = false
+            end
         end
+    else
+        for d, enabled in pairs(particlesStore) do
+            pcall(function()
+                if d and d.Parent then
+                    d.Enabled = enabled
+                end
+            end)
+        end
+        particlesStore = setmetatable({}, {__mode = "k"})
     end
 end
 local function setQuality(low)
@@ -79,24 +160,28 @@ local function setQuality(low)
         settings().Rendering.QualityLevel = low and Enum.QualityLevel.Level01 or Enum.QualityLevel.Automatic
     end)
 end
-local function setAtmosphere(off)
-    State.atmosphereOff = off
-    for _, obj in pairs(Lighting:GetChildren()) do
-        if obj:IsA("Atmosphere") then
-            obj.Density = off and 0 or 0.395
-            obj.Glare = off and 0 or 0
-            obj.Haze = off and 0 or 0
-            obj.Visible = not off
-        end
-    end
-end
+local worldLightsStore = setmetatable({}, {__mode = "k"})
 local function setWorldLights(off)
     State.worldLightsOff = off
-    local descendants = workspace:GetDescendants()
-    for _, d in ipairs(descendants) do
-        if d:IsA("SpotLight") or d:IsA("PointLight") or d:IsA("SurfaceLight") then
-            d.Enabled = not off
+    if off then
+        local descendants = workspace:GetDescendants()
+        for _, d in ipairs(descendants) do
+            if d:IsA("SpotLight") or d:IsA("PointLight") or d:IsA("SurfaceLight") then
+                if not worldLightsStore[d] then
+                    worldLightsStore[d] = d.Enabled
+                end
+                d.Enabled = false
+            end
         end
+    else
+        for d, enabled in pairs(worldLightsStore) do
+            pcall(function()
+                if d and d.Parent then
+                    d.Enabled = enabled
+                end
+            end)
+        end
+        worldLightsStore = setmetatable({}, {__mode = "k"})
     end
 end
 local function resetRender()
@@ -121,7 +206,7 @@ local texStore = {
     terrainDeco = nil,
 }
 local function hideObjTexture(d)
-    pcall(function()
+    local success = pcall(function()
         if d:IsA("Decal") or d:IsA("Texture") then
             if not texStore.decals[d] then
                 texStore.decals[d] = d.Transparency
@@ -182,16 +267,19 @@ local function hideObjTexture(d)
             d.PantsTemplate = ""
         end
     end)
+    return success
 end
 local function cleanupTextureProcessing()
-    State.hideTexture = false
+    if State.hideTexture then
+        setHideTexture(false)
+    end
 end
 local function setHideTexture(on)
     State.hideTexture = on
     if on then
         local wsDescendants = workspace:GetDescendants()
         local lightingDescendants = Lighting:GetDescendants()
-        
+
         for _, d in ipairs(wsDescendants) do
             hideObjTexture(d)
         end
@@ -202,55 +290,88 @@ local function setHideTexture(on)
             hideObjTexture(d)
         end
         pcall(function()
-            texStore.terrainDeco = workspace.Terrain.Decoration
-            workspace.Terrain.Decoration = false
+            if workspace.Terrain then
+                texStore.terrainDeco = workspace.Terrain.Decoration
+                workspace.Terrain.Decoration = false
+            end
         end)
     else
         for d, v in pairs(texStore.decals) do
-            pcall(function() d.Transparency = v end)
+            pcall(function()
+                if d and d.Parent then d.Transparency = v end
+            end)
         end
         texStore.decals = {}
+
         for d, p in pairs(texStore.surfApp) do
-            pcall(function() d.Parent = p end)
+            pcall(function()
+                if d and d.Parent == nil and p and p.Parent then d.Parent = p end
+            end)
         end
         texStore.surfApp = {}
+
         for d, m in pairs(texStore.materials) do
-            pcall(function() d.Material = m end)
+            pcall(function()
+                if d and d.Parent then d.Material = m end
+            end)
         end
         texStore.materials = {}
+
         for d, t in pairs(texStore.meshTex) do
-            pcall(function() d.TextureID = t end)
+            pcall(function()
+                if d and d.Parent then d.TextureID = t end
+            end)
         end
         texStore.meshTex = {}
+
         for d, t in pairs(texStore.fileMesh) do
-            pcall(function() d.TextureId = t end)
+            pcall(function()
+                if d and d.Parent then d.TextureId = t end
+            end)
         end
         texStore.fileMesh = {}
+
         for d, t in pairs(texStore.beams) do
-            pcall(function() d.Texture = t end)
+            pcall(function()
+                if d and d.Parent then d.Texture = t end
+            end)
         end
         texStore.beams = {}
+
         for d, s in pairs(texStore.skies) do
             pcall(function()
-                d.SkyboxBk = s[1]
-                d.SkyboxDn = s[2]
-                d.SkyboxFt = s[3]
-                d.SkyboxLf = s[4]
-                d.SkyboxRt = s[5]
-                d.SkyboxUp = s[6]
+                if d and d.Parent then
+                    d.SkyboxBk = s[1]
+                    d.SkyboxDn = s[2]
+                    d.SkyboxFt = s[3]
+                    d.SkyboxLf = s[4]
+                    d.SkyboxRt = s[5]
+                    d.SkyboxUp = s[6]
+                end
             end)
         end
         texStore.skies = {}
+
         for d, t in pairs(texStore.shirts) do
-            pcall(function() d.ShirtTemplate = t end)
+            pcall(function()
+                if d and d.Parent then d.ShirtTemplate = t end
+            end)
         end
         texStore.shirts = {}
+
         for d, t in pairs(texStore.pants) do
-            pcall(function() d.PantsTemplate = t end)
+            pcall(function()
+                if d and d.Parent then d.PantsTemplate = t end
+            end)
         end
         texStore.pants = {}
+
         if texStore.terrainDeco ~= nil then
-            pcall(function() workspace.Terrain.Decoration = texStore.terrainDeco end)
+            pcall(function()
+                if workspace.Terrain then
+                    workspace.Terrain.Decoration = texStore.terrainDeco
+                end
+            end)
             texStore.terrainDeco = nil
         end
     end
@@ -336,16 +457,20 @@ local function handleCharacter(char)
     table.insert(animConns, descConn)
 end
 local function cleanupAnimationProcessing()
-    State.noAnimation = false
     for _, conn in ipairs(animConns) do
         pcall(function() conn:Disconnect() end)
     end
     animConns = {}
     for _, s in ipairs(disabledScripts) do
-        pcall(function() s.Disabled = false end)
+        pcall(function()
+            if s and s.Parent then
+                s.Disabled = false
+            end
+        end)
     end
     disabledScripts = {}
     hookedObjs = {}
+    State.noAnimation = false
 end
 local function setNoAnimation(on)
     State.noAnimation = on
@@ -397,7 +522,10 @@ local function setZoom(on)
             local camNow = workspace.CurrentCamera
             if not camNow then return end
             local char = player.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not char then return end
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health <= 0 then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
             if not hrp then return end
             camNow.CameraType = Enum.CameraType.Scriptable
             local height = State.zoomHeight or 25
@@ -414,8 +542,65 @@ local function setZoom(on)
             cam.CameraType = Utility.OriginalCamera.CameraType
             cam.CameraSubject = Utility.OriginalCamera.CameraSubject
             cam.FieldOfView = Utility.OriginalCamera.FieldOfView
+            Utility.OriginalCamera = nil
         end
-        Utility.OriginalCamera = nil
+    end
+end
+local playerHideStore = {}
+local function setHidePlayer(on)
+    State.hidePlayer = on
+    if on then
+        if hidePlayerConn then
+            hidePlayerConn:Disconnect()
+        end
+        local function hideCharacter(char)
+            if not char then return end
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if not playerHideStore[part] then
+                        playerHideStore[part] = {
+                            Transparency = part.Transparency,
+                            CanCollide = part.CanCollide,
+                        }
+                    end
+                    part.Transparency = 1
+                    part.CanCollide = false
+                elseif part:IsA("Decal") or part:IsA("Texture") then
+                    if not playerHideStore[part] then
+                        playerHideStore[part] = {
+                            Transparency = part.Transparency,
+                        }
+                    end
+                    part.Transparency = 1
+                end
+            end
+        end
+        if player.Character then
+            hideCharacter(player.Character)
+        end
+        hidePlayerConn = player.CharacterAdded:Connect(function(char)
+            if State.hidePlayer then
+                hideCharacter(char)
+            end
+        end)
+    else
+        if hidePlayerConn then
+            hidePlayerConn:Disconnect()
+            hidePlayerConn = nil
+        end
+        for part, data in pairs(playerHideStore) do
+            pcall(function()
+                if part and part.Parent then
+                    if data.Transparency ~= nil then
+                        part.Transparency = data.Transparency
+                    end
+                    if data.CanCollide ~= nil then
+                        part.CanCollide = data.CanCollide
+                    end
+                end
+            end)
+        end
+        playerHideStore = {}
     end
 end
 local function addRenderPart(part)
@@ -653,12 +838,24 @@ Lighting.DescendantAdded:Connect(function(d)
         hideObjTexture(d)
     end
     if State.postEffectsOff and d:IsA("PostEffect") then
+        if not postEffectsStore[d] then
+            postEffectsStore[d] = d.Enabled
+        end
         d.Enabled = false
     end
     if State.atmosphereOff and d:IsA("Atmosphere") then
+        if not atmosphereStore[d] then
+            atmosphereStore[d] = {
+                Density = d.Density,
+                Glare = d.Glare,
+                Haze = d.Haze,
+                Visible = d.Visible,
+            }
+        end
         d.Density = 0
         d.Glare = 0
         d.Haze = 0
+        d.Visible = false
     end
 end)
 local gui = Instance.new("ScreenGui")
@@ -836,6 +1033,7 @@ local function addSlider(text, default, callback)
     hit.Parent = box
     local sliding = false
     local function update(x)
+        if not track.Parent or not fill.Parent or not handle.Parent or not valLbl.Parent then return end
         local rel = x - track.AbsolutePosition.X
         local pct = math.clamp(rel / track.AbsoluteSize.X, 0, 1)
         fill.Size = UDim2.new(pct, 0, 1, 0)
@@ -885,6 +1083,9 @@ addToggle("Low Quality", false, function(on)
 end)
 addToggle("Hide Texture", false, function(on)
     setHideTexture(on)
+end)
+addToggle("Hide Player", false, function(on)
+    setHidePlayer(on)
 end)
 addSep()
 addHeader("VISUAL")
@@ -1037,21 +1238,34 @@ do
 end
 local function cleanupAll()
     State.renderOn = false
-    State.hideTexture = false
-    State.noAnimation = false
-    setZoom(false)
+    setHideTexture(false)
     cleanupTextureProcessing()
+    setNoAnimation(false)
     cleanupAnimationProcessing()
+    setZoom(false)
+    setHidePlayer(false)
     resetRender()
     setParticles(false)
     setPostEffects(false)
     setShadows(false)
+    setAtmosphere(false)
+    setWorldLights(false)
     if State.fullbright then
         State.fullbright = false
         if Utility.FullbrightConn then
             Utility.FullbrightConn:Disconnect()
             Utility.FullbrightConn = nil
         end
+        pcall(function()
+            if Utility.OriginalLighting then
+                Lighting.Brightness = Utility.OriginalLighting.Brightness
+                Lighting.ClockTime = Utility.OriginalLighting.ClockTime
+                Lighting.FogEnd = Utility.OriginalLighting.FogEnd
+                Lighting.GlobalShadows = Utility.OriginalLighting.GlobalShadows
+                Lighting.OutdoorAmbient = Utility.OriginalLighting.OutdoorAmbient
+                Utility.OriginalLighting = nil
+            end
+        end)
     end
     if renderConn then
         renderConn:Disconnect()
