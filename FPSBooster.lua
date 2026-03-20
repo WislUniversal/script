@@ -17,8 +17,6 @@ local State = {
     postEffectsOff = false,
     atmosphereOff = false,
     worldLightsOff = false,
-    zoomOn = false,
-    zoomHeight = 60,
     hidePlayer = false,
 }
 local renderParts = {}
@@ -33,7 +31,6 @@ local renderConn = nil
 local fpsConn = nil
 local renderDescAddConn = nil
 local renderDescRemoveConn = nil
-local zoomConn = nil
 local hidePlayerConn = nil
 local MAX_PARTS_PER_FRAME = 200
 local MAX_PARTICLES_PER_FRAME = 100
@@ -503,55 +500,16 @@ local function setNoAnimation(on)
         cleanupAnimationProcessing()
     end
 end
-local function setZoom(on)
-    State.zoomOn = on
-    if on then
-        local cam = workspace.CurrentCamera
-        if cam and not Utility.OriginalCamera then
-            Utility.OriginalCamera = {
-                CameraType = cam.CameraType,
-                CameraSubject = cam.CameraSubject,
-                FieldOfView = cam.FieldOfView,
-            }
-        end
-        if zoomConn then
-            zoomConn:Disconnect()
-        end
-        zoomConn = RunService.RenderStepped:Connect(function()
-            if not State.zoomOn then return end
-            local camNow = workspace.CurrentCamera
-            if not camNow then return end
-            local char = player.Character
-            if not char then return end
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health <= 0 then return end
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if not hrp then return end
-            camNow.CameraType = Enum.CameraType.Scriptable
-            local height = State.zoomHeight or 25
-            local pos = hrp.Position + Vector3.new(0, height, 0)
-            camNow.CFrame = CFrame.new(pos, hrp.Position)
-        end)
-    else
-        if zoomConn then
-            zoomConn:Disconnect()
-            zoomConn = nil
-        end
-        local cam = workspace.CurrentCamera
-        if Utility.OriginalCamera and cam then
-            cam.CameraType = Utility.OriginalCamera.CameraType
-            cam.CameraSubject = Utility.OriginalCamera.CameraSubject
-            cam.FieldOfView = Utility.OriginalCamera.FieldOfView
-            Utility.OriginalCamera = nil
-        end
-    end
-end
 local playerHideStore = {}
+local otherPlayerHideConn = nil
 local function setHidePlayer(on)
     State.hidePlayer = on
     if on then
         if hidePlayerConn then
             hidePlayerConn:Disconnect()
+        end
+        if otherPlayerHideConn then
+            otherPlayerHideConn:Disconnect()
         end
         local function hideCharacter(char)
             if not char then return end
@@ -575,9 +533,22 @@ local function setHidePlayer(on)
                 end
             end
         end
+        local function hideAllPlayers()
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= player and p.Character then
+                    hideCharacter(p.Character)
+                end
+            end
+        end
+        hideAllPlayers()
         if player.Character then
             hideCharacter(player.Character)
         end
+        otherPlayerHideConn = Players.PlayerAdded:Connect(function(p)
+            if State.hidePlayer and p ~= player and p.Character then
+                hideCharacter(p.Character)
+            end
+        end)
         hidePlayerConn = player.CharacterAdded:Connect(function(char)
             if State.hidePlayer then
                 hideCharacter(char)
@@ -587,6 +558,10 @@ local function setHidePlayer(on)
         if hidePlayerConn then
             hidePlayerConn:Disconnect()
             hidePlayerConn = nil
+        end
+        if otherPlayerHideConn then
+            otherPlayerHideConn:Disconnect()
+            otherPlayerHideConn = nil
         end
         for part, data in pairs(playerHideStore) do
             pcall(function()
@@ -1134,13 +1109,6 @@ addToggle("Fullbright", false, function(state)
     end
 end)
 addSep()
-addHeader("CAMERA")
-addToggle("Zoom Look Down", false, function(on)
-    setZoom(on)
-end)
-addSlider("Zoom Height", 0.375, function(v)
-    State.zoomHeight = 6 + (v * 144)
-end)
 local dragOn, dragStart, startPos = false, nil, nil
 titleBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -1242,7 +1210,6 @@ local function cleanupAll()
     cleanupTextureProcessing()
     setNoAnimation(false)
     cleanupAnimationProcessing()
-    setZoom(false)
     setHidePlayer(false)
     resetRender()
     setParticles(false)
