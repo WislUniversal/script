@@ -1,6 +1,6 @@
 return {
     EmotesR15 = {
-        {"", ""},
+        {"None", ""},
         {"Agree", "10713954623"},
         {"Alo Yoga Pose - Lotus Position", "12507085924"},
         {"ALTÉGO - Couldn't Care Less", "107875941017127"},
@@ -1250,7 +1250,7 @@ return {
         {"LE SSERAFIM - Fearless", "71607535434016"}
     },
     EmotesR6 = {
-        {"", ""},
+        {"None", ""},
         {"R6 - Dance", "33796059"},
         {"R6 - Dance2 Groove", "27789359"},
         {"R6 - Dance3 Style", "33169583"},
