@@ -156,7 +156,10 @@ return {
         {"AI Cat Dance", "108865839239307"},
         {"Vegetable Dance", "84352128203419"},
         {"DJ Khaled", "82293338535013"},
-        {"Confused Dance", "111251252458517"}
+        {"Confused Dance", "111251252458517"},
+        {"Ela Peida Dance", "109151678265605"},
+        {"Dance All Night", "102998462448180"},
+        {"Chinese Dance", "71292563614996"}
     },
     EmotesR6 = {
         {"", ""},
