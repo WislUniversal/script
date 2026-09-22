@@ -159,7 +159,8 @@ return {
         {"Confused Dance", "111251252458517"},
         {"Ela Peida Dance", "109151678265605"},
         {"Dance All Night", "102998462448180"},
-        {"Chinese Dance", "71292563614996"}
+        {"Chinese Dance", "71292563614996"},
+        {"Needy circle bounce⭐️", "110648685315659"}
     },
     EmotesR6 = {
         {"", ""},
