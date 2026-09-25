@@ -160,7 +160,10 @@ return {
         {"Ela Peida Dance", "109151678265605"},
         {"Dance All Night", "102998462448180"},
         {"Chinese Dance", "71292563614996"},
-        {"Needy circle bounce⭐️", "110648685315659"}
+        {"Needy circle bounce⭐️", "110648685315659"},
+        {"Jamal Dancing Emote", "75907152789412"},
+        {"La Salsa Dance", "72560097631455"},
+        {"w zesty sturdy", "115992344778101"}
     },
     EmotesR6 = {
         {"", ""},
