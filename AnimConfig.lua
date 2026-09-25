@@ -163,7 +163,8 @@ return {
         {"Needy circle bounce⭐️", "110648685315659"},
         {"Jamal Dancing Emote", "75907152789412"},
         {"La Salsa Dance", "72560097631455"},
-        {"w zesty sturdy", "115992344778101"}
+        {"w zesty sturdy", "115992344778101"},
+        {"[BEST] Party Rock Anthem", "100272467838450"}
     },
     EmotesR6 = {
         {"", ""},
