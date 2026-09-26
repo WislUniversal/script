@@ -164,7 +164,12 @@ return {
         {"Jamal Dancing Emote", "75907152789412"},
         {"La Salsa Dance", "72560097631455"},
         {"w zesty sturdy", "115992344778101"},
-        {"[BEST] Party Rock Anthem", "100272467838450"}
+        {"[BEST] Party Rock Anthem", "100272467838450"},
+        {"Billy Bounce", "119280135350752"},
+        {"POP DAT THANG", "120615013035083"},
+        {"Low Cortisol Dance Pill", "77387643699357"},
+        {"Zesty Backflip", "138863650838971"},
+        {"neck roller", "110855869390004"}
     },
     EmotesR6 = {
         {"", ""},
