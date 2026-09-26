@@ -169,7 +169,10 @@ return {
         {"POP DAT THANG", "120615013035083"},
         {"Low Cortisol Dance Pill", "77387643699357"},
         {"Zesty Backflip", "138863650838971"},
-        {"neck roller", "110855869390004"}
+        {"neck roller", "110855869390004"},
+        {"Zero Two Dance V2", "82682811348660"},
+        {"Needy Baddie Hip Shake", "89239744978530"},
+        {"Rampage Dance 🔥", "89903525863588"}
     },
     EmotesR6 = {
         {"", ""},
