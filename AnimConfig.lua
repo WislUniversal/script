@@ -172,7 +172,8 @@ return {
         {"neck roller", "110855869390004"},
         {"Zero Two Dance V2", "82682811348660"},
         {"Needy Baddie Hip Shake", "89239744978530"},
-        {"Rampage Dance 🔥", "89903525863588"}
+        {"Rampage Dance 🔥", "89903525863588"},
+        {"Springtrap Dance", "80927378599036"}
     },
     EmotesR6 = {
         {"", ""},
