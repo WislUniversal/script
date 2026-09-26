@@ -175,7 +175,8 @@ return {
         {"Rampage Dance 🔥", "89903525863588"},
         {"Springtrap Dance", "80927378599036"},
         {"⏰ Tiki Tiki Dance", "94593831004144"},
-        {"Che Che", "71032182360903"}
+        {"Che Che", "71032182360903"},
+        {"The Rick Dance", "136417421578631"}
     },
     EmotesR6 = {
         {"", ""},
